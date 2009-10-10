@@ -43,8 +43,8 @@ public class RouteArc {
 
 	private int offset;
 
-	private final byte initialHeading;
-	private byte endDirection;
+	private int initialHeading; // degrees
+	private int finalHeading; // degrees
 
 	private final RoadDef roadDef;
 
@@ -62,6 +62,7 @@ public class RouteArc {
 
 	private boolean curve;
 	private int length;
+	private int pointsHash;
 
 	/**
 	 * Create a new arc.
@@ -69,34 +70,35 @@ public class RouteArc {
 	 * @param roadDef The road that this arc segment is part of.
 	 * @param source The source node.
 	 * @param dest The destination node.
-	 * @param nextCoord The heading coordinate.
+	 * @param initialHeading The initial heading (signed degrees)
 	 */
-	public RouteArc(RoadDef roadDef, RouteNode source, RouteNode dest,
-				Coord nextCoord, double length) {
+	public RouteArc(RoadDef roadDef,
+					RouteNode source, RouteNode dest,
+					int initialHeading, int finalHeading,
+					double length, int pointsHash) {
 		this.roadDef = roadDef;
 		this.source = source;
 		this.dest = dest;
-
+		this.initialHeading = initialHeading;
+		this.finalHeading = finalHeading;
 		this.length = convertMeters(length);
-		if(log.isDebugEnabled())
-			log.debug("set length", this.length);
-		// if nextCoord is so close to the source node that the
-		// coordinates are equal, it won't be possible to determine
-		// the heading angle so use the dest node instead
-		if(source.getCoord().equals(nextCoord)) {
-			if(source.getCoord().equals(dest.getCoord())) {
-				log.warn("Can't determine arc heading (using 0) at " + source.getCoord().toOSMURL());
-				this.initialHeading = (byte)0;
-			}
-			else {
-				log.info("Using destination node to determine arc heading at " + source.getCoord().toOSMURL());
-				this.initialHeading = calcAngle(dest.getCoord());
-			}
-		}
-		else
-			this.initialHeading = calcAngle(nextCoord);
-		// too early: dest.nodeClass may still increase
-		//setDestinationClass(dest.getNodeClass());
+		this.pointsHash = pointsHash;
+	}
+
+	public int getInitialHeading() {
+		return initialHeading;
+	}
+
+	public void setInitialHeading(int ih) {
+		initialHeading = ih;
+	}
+
+	public int getFinalHeading() {
+		return finalHeading;
+	}
+
+	public void setFinalHeading(int fh) {
+		finalHeading = fh;
 	}
 
 	public RouteNode getSource() {
@@ -105,6 +107,14 @@ public class RouteArc {
 
 	public RouteNode getDest() {
 		return dest;
+	}
+
+	public int getLength() {
+		return length;
+	}
+
+	public int getPointsHash() {
+		return pointsHash;
 	}
 
 	/**
@@ -167,23 +177,6 @@ public class RouteArc {
 		return indexB;
 	}
 	 
-	private byte calcAngle(Coord end) {
-		Coord start = source.getCoord();
-
-		if(log.isDebugEnabled())
-			log.debug("start", start.toDegreeString(), ", end", end.toDegreeString());
-
-		double angle = source.getCoord().bearingTo(end);
-
-		if(log.isDebugEnabled())
-			log.debug("angle is ", angle);
-
-		byte b = (byte) (256 * angle / 360);
-		if(log.isDebugEnabled())
-			log.debug("deg from ret val", (360 * b) / 256);
-
-		return b;
-	}
 
 	private static int convertMeters(double l) {
 		// XXX: really a constant factor?
@@ -222,7 +215,7 @@ public class RouteArc {
 		for (int aLendat : lendat)
 			writer.put((byte) aLendat);
 
-		writer.put(initialHeading);
+		writer.put((byte)(256 * initialHeading / 360));
 
 		if (curve) {
 			int[] curvedat = encodeCurve();
@@ -313,14 +306,5 @@ public class RouteArc {
 		if(log.isDebugEnabled())
 			log.debug("setting destination class", destinationClass);
 		flagA |= (destinationClass & MASK_DESTCLASS);
-	}
-
-	public void setEndDirection(double ang) {
-		endDirection = angleToByte(ang);
-		curve = true;
-	}
-
-	private static byte angleToByte(double ang) {
-		return (byte) (255 * ang / 360);
 	}
 }
