@@ -60,9 +60,10 @@ public class RouteArc {
 	private byte flagA;
 	private byte flagB;
 
-	private boolean curve;
+	private boolean haveCurve;
 	private int length;
-	private int pointsHash;
+	private final int pointsHash;
+	private final boolean curveEnabled;
 
 	/**
 	 * Create a new arc.
@@ -75,13 +76,16 @@ public class RouteArc {
 	public RouteArc(RoadDef roadDef,
 					RouteNode source, RouteNode dest,
 					int initialHeading, int finalHeading,
-					double length, int pointsHash) {
+					double length,
+					boolean curveEnabled,
+					int pointsHash) {
 		this.roadDef = roadDef;
 		this.source = source;
 		this.dest = dest;
 		this.initialHeading = initialHeading;
 		this.finalHeading = finalHeading;
 		this.length = convertMeters(length);
+		this.curveEnabled = curveEnabled;
 		this.pointsHash = pointsHash;
 	}
 
@@ -121,11 +125,14 @@ public class RouteArc {
 	 * Provide an upper bound for the written size in bytes.
 	 */
 	public int boundSize() {
-		// XXX: this could be reduced, and may increase
-		// currently: 1 (flagA) + 1-2 (offset) + 1 (indexA)
-		//          + 2 (length) + 1 (initialHeading)
-		// needs updating when curve data is written
-		return 7;
+
+		int[] lendat = encodeLength();
+
+		// 1 (flagA) + 1-2 (offset) + 1 (indexA) + 1 (initialHeading)
+		int size = 5 + lendat.length;
+		if(haveCurve)
+			size += encodeCurve().length;
+		return size;
 	}
 
 	/**
@@ -217,7 +224,7 @@ public class RouteArc {
 
 		writer.put((byte)(256 * initialHeading / 360));
 
-		if (curve) {
+		if (haveCurve) {
 			int[] curvedat = encodeCurve();
 			for (int aCurvedat : curvedat)
 				writer.put((byte) aCurvedat);
@@ -255,18 +262,41 @@ public class RouteArc {
 	 * There's even more different encodings supposedly.
 	 */
 	private int[] encodeLength() {
-		// we'll just use a special encoding with curve=false for
-		// now, 14 bits for length
-		assert !curve : "not writing curve data yet";
+
+		// update haveCurve
+		haveCurve = (curveEnabled && finalHeading != initialHeading);
+
 		if (length >= (1 << 14)) {
 			log.error("Way " + roadDef.getName() + " (id " + roadDef.getId() + ") contains an arc whose length is too big to be encoded so the road will not be routable");
 			length = (1 << 14) - 1;
 		}
 
-		flagA |= 0x38; // all three bits set
-		int[] lendat = new int[2]; // two bytes of data
-		lendat[0] = 0x80 | (length & 0x3f); // 0x40 not set, 6 low bits of length
-		lendat[1] = (length >> 6) & 0xff; // 8 more bits of length
+		// clear existing bits in case length or final heading have
+		// been changed
+		flagA &= ~0x38;
+		int[] lendat;
+		if(length < 0x200) {
+			// 9 bit length optional curve
+			if(haveCurve)
+				flagA |= 0x20;
+			flagA |= (length >> 5) & 0x08; // top bit of length
+			lendat = new int[1];		   // one byte of data
+			lendat[0] = length;			   // bottom 8 bits of length
+		}
+		else if(haveCurve) {
+			// 15 bit length with curve
+			flagA |= 0x38;				 // all three bits set
+			lendat = new int[2];		 // two bytes of data
+			lendat[0] = (length & 0x7f); // 0x80 not set, 7 low bits of length
+			lendat[1] = (length >> 7) & 0xff; // 8 more bits of length
+		}
+		else {
+			// 14 bit length no curve
+			flagA |= 0x38;		 // all three bits set
+			lendat = new int[2]; // two bytes of data
+			lendat[0] = 0x80 | (length & 0x3f); // 0x80 set, 0x40 not set, 6 low bits of length
+			lendat[1] = (length >> 6) & 0xff; // 8 more bits of length
+		}
 
 		return lendat;
 	}
@@ -278,8 +308,27 @@ public class RouteArc {
 	 * all well understood yet.
 	 */
 	private int[] encodeCurve() {
-		assert !curve : "not writing curve data yet";
-		return null;
+		// most examples of curve data are a single byte that encodes
+		// the final heading of the arc. The bits appear to be
+		// reorganised into the order 21076543 (i.e. the top 5 bits
+		// are shifted down to the bottom).  Unfortunately, it's not
+		// that simple because sometimes the curve is encoded using 2
+		// bytes. The presence of the 2nd byte is indicated by the top
+		// 3 bits of the first byte all being zero. As the encoding of
+		// the 2-byte variant is not yet understood, for the moment,
+		// if the resulting value would have the top 3 bits all zero,
+		// we set what we hope is the LSB so that it becomes valid
+		// 1-byte curve data
+		int heading = 256 * finalHeading / 360;
+		int encodedHeading = ((heading & 0xf8) >> 3) | ((heading & 0x07) << 5);
+		if((encodedHeading & 0xe0) == 0) {
+			// hack - set a bit (hopefully, the LSB) to force 1-byte
+			// encoding
+			encodedHeading |= 0x20;
+		}
+		int[] curveData = new int[1];
+		curveData[0] = encodedHeading;
+		return curveData;
 	}
 
 	public RoadDef getRoadDef() {

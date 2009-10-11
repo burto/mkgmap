@@ -63,10 +63,12 @@ public class RoadNetwork {
 	private List<RouteCenter> centers = new ArrayList<RouteCenter>();
 	private boolean adjustTurnHeadings;
 	private boolean reportSimilarArcs;
+	private boolean outputCurveData;
 
 	public void config(EnhancedProperties props) {
 		adjustTurnHeadings = props.getProperty("adjust-turn-headings", false);
 		reportSimilarArcs = props.getProperty("report-similar-arcs", false);
+		outputCurveData = !props.getProperty("no-arc-curves", false);
 	}
 
 	public void addRoad(MapRoad road) {
@@ -157,6 +159,7 @@ public class RoadNetwork {
 											forwardBearing,
 											inverseReverseBearing,
 											arcLength,
+											outputCurveData,
 											pointsHash);
 				arc.setForward();
 				node1.addArc(arc);
@@ -168,6 +171,7 @@ public class RoadNetwork {
 								   reverseBearing,
 								   inverseForwardBearing,
 								   arcLength,
+								   outputCurveData,
 								   pointsHash);
 				node2.addArc(arc);
 				node1.addIncomingArc(arc);
