@@ -322,7 +322,11 @@ public class RouteNode implements Comparable<RouteNode> {
 								return true;
 							}
 							// one's a link road and the other isn't
-							// so consider them different roads
+							// so consider them different roads - this
+							// is because people often give a link
+							// road that's leaving some road the same
+							// ref as that road but it suits us better
+							// to consider them as different roads
 							return false;
 						}
 					}
